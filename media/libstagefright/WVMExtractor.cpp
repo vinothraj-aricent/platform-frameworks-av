@@ -71,9 +71,11 @@ WVMExtractor::WVMExtractor(const sp<DataSource> &source)
 static void init_routine()
 {
     gVendorLibHandle = dlopen("libwvm.so", RTLD_NOW);
+    /*
     if (gVendorLibHandle == NULL) {
         ALOGE("Failed to open libwvm.so: %s", dlerror());
     }
+    */
 }
 
 bool WVMExtractor::getVendorLibHandle()
