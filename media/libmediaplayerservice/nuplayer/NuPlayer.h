@@ -95,6 +95,8 @@ private:
     struct Decoder;
     struct DecoderBase;
     struct DecoderPassThrough;
+    struct DecoderPassThroughAC3;
+
     struct CCDecoder;
     struct GenericSource;
     struct HTTPLiveSource;
@@ -222,6 +224,7 @@ private:
     bool mRendering;
 
     bool bNuPlayerStreamingSource;
+    bool bEnablePassThrough;
 
     inline const sp<DecoderBase> &getDecoder(bool audio) {
         return audio ? mAudioDecoder : mVideoDecoder;
@@ -293,7 +296,8 @@ private:
     void writeTrackInfo(Parcel* reply, const sp<AMessage> format) const;
     void scheduleSetVideoDecoderTime();
     void cancelSetVideoDecoderTime();
-
+void tryOpenAudioSinkForPassThrough(
+        const sp<AMessage> &format, bool hasVideo);
     DISALLOW_EVIL_CONSTRUCTORS(NuPlayer);
 };
 

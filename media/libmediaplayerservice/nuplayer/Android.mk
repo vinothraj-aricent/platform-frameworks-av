@@ -19,6 +19,7 @@ LOCAL_SRC_FILES:=                       \
         RTPSessionManager.cpp           \
         UDPSessionManager.cpp           \
         StreamingDataSource.cpp         \
+        NuPlayerDecoderPassThroughAC3.cpp\
 
 LOCAL_C_INCLUDES := \
 	$(TOP)/frameworks/av/media/libstagefright                     \

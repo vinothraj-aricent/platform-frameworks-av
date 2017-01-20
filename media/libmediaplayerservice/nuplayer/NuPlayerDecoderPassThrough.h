@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+/* Copyright 2017 NXP */
 
 #ifndef NUPLAYER_DECODER_PASS_THROUGH_H_
 
@@ -44,6 +45,10 @@ protected:
     virtual void onShutdown(bool notifyComplete);
     virtual bool doRequestBuffers();
 
+    virtual bool enableOffload();
+    virtual int32_t getAudioOutputFlags();
+    virtual status_t parseAccessUnit(sp<ABuffer> *accessUnit);
+    virtual status_t getCacheSize(size_t *cacheSize,size_t * bufferSize);
 private:
     enum {
         kWhatBufferConsumed     = 'bufC',
@@ -67,6 +72,8 @@ private:
     size_t  mCachedBytes;
     AString mComponentName;
 
+    size_t  mCachedSize;//replace kMaxCachedBytes
+    size_t  mBufferSize;//replace kAggregateBufferSizeBytes
     bool isStaleReply(const sp<AMessage> &msg);
     bool isDoneFetching() const;
 

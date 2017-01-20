@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+ /* Copyright 2017 NXP */
 
 //#define LOG_NDEBUG 0
 #define LOG_TAG "NuPlayerDecoderPassThrough"
@@ -52,6 +53,8 @@ NuPlayer::DecoderPassThrough::DecoderPassThrough(
       mPendingBuffersToDrain(0),
       mCachedBytes(0),
       mComponentName("pass through decoder") {
+      mCachedSize = kMaxCachedBytes;
+      mBufferSize = kAggregateBufferSizeBytes;
     ALOGW_IF(renderer == NULL, "expect a non-NULL renderer");
 }
 
@@ -65,6 +68,9 @@ void NuPlayer::DecoderPassThrough::onConfigure(const sp<AMessage> &format) {
     mReachedEOS = false;
     ++mBufferGeneration;
 
+    //update cache size
+    getCacheSize(&mCachedSize,&mBufferSize);
+
     onRequestInputBuffers();
 
     int32_t hasVideo = 0;
@@ -74,8 +80,8 @@ void NuPlayer::DecoderPassThrough::onConfigure(const sp<AMessage> &format) {
     // Opening again might be relevant if decoder is instantiated after shutdown and
     // format is different.
     status_t err = mRenderer->openAudioSink(
-            format, true /* offloadOnly */, hasVideo,
-            AUDIO_OUTPUT_FLAG_NONE /* flags */, NULL /* isOffloaded */);
+            format, enableOffload() /* offloadOnly */, hasVideo,
+            getAudioOutputFlags() /* flags */, NULL /* isOffloaded */);
     if (err != OK) {
         handleError(err);
     }
@@ -107,7 +113,7 @@ bool NuPlayer::DecoderPassThrough::isDoneFetching() const {
     ALOGV("[%s] mCachedBytes = %zu, mReachedEOS = %d mPaused = %d",
             mComponentName.c_str(), mCachedBytes, mReachedEOS, mPaused);
 
-    return mCachedBytes >= kMaxCachedBytes || mReachedEOS || mPaused;
+    return mCachedBytes >= mCachedSize || mReachedEOS || mPaused;
 }
 
 /*
@@ -141,9 +147,12 @@ status_t NuPlayer::DecoderPassThrough::dequeueAccessUnit(sp<ABuffer> *accessUnit
         ALOGV("feedDecoderInputData() use mPendingAudioAccessUnit");
     } else {
         err = mSource->dequeueAccessUnit(true /* audio */, accessUnit);
+        if(err == OK)
+            err = parseAccessUnit(accessUnit);
     }
 
     if (err == INFO_DISCONTINUITY || err == ERROR_END_OF_STREAM) {
+
         if (mAggregateBuffer != NULL) {
             // We already have some data so save this for later.
             mPendingAudioErr = err;
@@ -170,11 +179,11 @@ sp<ABuffer> NuPlayer::DecoderPassThrough::aggregateBuffer(
     }
 
     size_t smallSize = accessUnit->size();
-    if ((mAggregateBuffer == NULL)
+    if ((mAggregateBuffer == NULL && mBufferSize > 0)
             // Don't bother if only room for a few small buffers.
-            && (smallSize < (kAggregateBufferSizeBytes / 3))) {
+            && (smallSize < (mBufferSize / 3))) {
         // Create a larger buffer for combining smaller buffers from the extractor.
-        mAggregateBuffer = new ABuffer(kAggregateBufferSizeBytes);
+        mAggregateBuffer = new ABuffer(mBufferSize);
         mAggregateBuffer->setRange(0, 0); // start empty
     }
 
@@ -430,5 +439,27 @@ void NuPlayer::DecoderPassThrough::onMessageReceived(const sp<AMessage> &msg) {
             break;
     }
 }
-
+bool NuPlayer::DecoderPassThrough::enableOffload()
+{
+    return true;
+}
+int32_t NuPlayer::DecoderPassThrough::getAudioOutputFlags()
+{
+    ALOGV("getAudioOutputFlags AUDIO_OUTPUT_FLAG_NONE");
+    return AUDIO_OUTPUT_FLAG_NONE;
+}
+status_t NuPlayer::DecoderPassThrough::parseAccessUnit(sp<ABuffer> *accessUnit)
+{
+    ALOGV("parseAccessUnit %zu",(*accessUnit)->size());
+    return OK;
+}
+status_t NuPlayer::DecoderPassThrough::getCacheSize(size_t *cacheSize,size_t * bufferSize)
+{
+    if(cacheSize == NULL || bufferSize == NULL)
+        return BAD_VALUE;
+    *cacheSize = kMaxCachedBytes;
+    *bufferSize = kAggregateBufferSizeBytes;
+    ALOGV("getCacheSize %zu,%zu",kMaxCachedBytes,kAggregateBufferSizeBytes);
+    return OK;
+}
 }  // namespace android

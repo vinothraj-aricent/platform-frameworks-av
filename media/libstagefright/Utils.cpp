@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 /* Copyright (C) 2016 Freescale Semiconductor, Inc. */
+/* Copyright 2017 NXP */
+
 //#define LOG_NDEBUG 0
 #define LOG_TAG "Utils"
 #include <utils/Log.h>
@@ -1829,6 +1831,34 @@ AString nameForFd(int fd) {
     }
     return result;
 }
+bool canPassThrough(const sp<MetaData>& meta)
+{
+    const char *mime;
+    if (meta == NULL) {
+        return false;
+    }
+    CHECK(meta->findCString(kKeyMIMEType, &mime));
 
+    //only enable for ac3 now
+    if (0 == strcasecmp(mime, MEDIA_MIMETYPE_AUDIO_AC3)){
+
+        int32_t value = property_get_int32( "persist.audio.pass.through", 0 /* default_value */);
+        if(value != 2000)
+            return false;
+
+        if(AudioSystem::getDeviceConnectionState(AUDIO_DEVICE_OUT_WIRED_HEADPHONE, "")
+                == AUDIO_POLICY_DEVICE_STATE_AVAILABLE) {
+            return false;
+        }
+
+        if(AudioSystem::getDeviceConnectionState(AUDIO_DEVICE_OUT_AUX_DIGITAL, "")
+                == AUDIO_POLICY_DEVICE_STATE_AVAILABLE){
+                ALOGE("canPassThrough");
+                return true;
+        }
+    }
+
+    return false;
+}
 }  // namespace android
 

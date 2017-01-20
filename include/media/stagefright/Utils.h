@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+/* Copyright 2017 NXP */
 
 #ifndef UTILS_H_
 
@@ -92,6 +93,7 @@ void readFromAMessage(
 
 AString nameForFd(int fd);
 
+bool canPassThrough(const sp<MetaData>& meta);
 }  // namespace android
 
 #endif  // UTILS_H_

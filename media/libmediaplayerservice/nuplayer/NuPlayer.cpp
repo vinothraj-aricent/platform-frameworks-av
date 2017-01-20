@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 /* Copyright (C) 2013-2016 Freescale Semiconductor, Inc. */
+/* Copyright 2017 NXP */
+
 //#define LOG_NDEBUG 0
 #define LOG_TAG "NuPlayer"
 #include <utils/Log.h>
@@ -25,6 +27,7 @@
 #include "NuPlayerDecoder.h"
 #include "NuPlayerDecoderBase.h"
 #include "NuPlayerDecoderPassThrough.h"
+#include "NuPlayerDecoderPassThroughAC3.h"
 #include "NuPlayerDriver.h"
 #include "NuPlayerRenderer.h"
 #include "NuPlayerSource.h"
@@ -200,6 +203,7 @@ NuPlayer::NuPlayer(pid_t pid)
     clearFlushComplete();
     mRendering = false;
     bNuPlayerStreamingSource = false;
+    bEnablePassThrough = false;
 }
 
 NuPlayer::~NuPlayer() {
@@ -757,7 +761,7 @@ void NuPlayer::onMessageReceived(const sp<AMessage> &msg) {
             if (mRenderer != NULL) {
                 // AudioSink allows only 1.f and 0.f for offload mode.
                 // For other speed, switch to non-offload mode.
-                if (mOffloadAudio && ((rate.mSpeed != 0.f && rate.mSpeed != 1.f)
+                if ((mOffloadAudio || bEnablePassThrough) && ((rate.mSpeed != 0.f && rate.mSpeed != 1.f)
                         || rate.mPitch != 1.f)) {
                     int64_t currentPositionUs;
                     if (getCurrentPosition(&currentPositionUs) != OK) {
@@ -1188,7 +1192,7 @@ void NuPlayer::onMessageReceived(const sp<AMessage> &msg) {
                 int32_t reason;
                 CHECK(msg->findInt32("reason", &reason));
                 ALOGV("Tear down audio with reason %d.", reason);
-                if (reason == Renderer::kDueToTimeout && !(mPaused && mOffloadAudio)) {
+                if (reason == Renderer::kDueToTimeout && !(mPaused && (mOffloadAudio || bEnablePassThrough))) {
                     // TimeoutWhenPaused is only for offload mode.
                     ALOGW("Receive a stale message for teardown.");
                     break;
@@ -1394,7 +1398,7 @@ void NuPlayer::onStart(int64_t startPositionUs) {
     mVideoEOS = false;
     mStarted = true;
     mPaused = false;
-
+    bEnablePassThrough = false;
     uint32_t flags = 0;
 
     if (mSource->isRealTime()) {
@@ -1428,6 +1432,10 @@ void NuPlayer::onStart(int64_t startPositionUs) {
     if (mOffloadAudio) {
         flags |= Renderer::FLAG_OFFLOAD_AUDIO;
     }
+
+    bEnablePassThrough = canPassThrough(audioMeta)
+                && (mPlaybackSettings.mSpeed == 1.f && mPlaybackSettings.mPitch == 1.f);
+    ALOGE("NuPlayer::onStart bEnablePassThrough=%d",bEnablePassThrough);
 
     sp<AMessage> notify = new AMessage(kWhatRendererNotify, this);
     ++mRendererGeneration;
@@ -1574,6 +1582,29 @@ void NuPlayer::tryOpenAudioSinkForOffload(
     }
 }
 
+void NuPlayer::tryOpenAudioSinkForPassThrough(
+        const sp<AMessage> &format, bool hasVideo) {
+    // Note: This is called early in NuPlayer to determine whether offloading
+    // is possible; otherwise the decoders call the renderer openAudioSink directly.
+
+    format->setInt32("channel-count", 2);
+    format->setInt32("channel-mask", CHANNEL_MASK_USE_CHANNEL_ORDER);
+    format->setInt32("sample-rate", 48000);
+
+
+    status_t err = mRenderer->openAudioSink(
+            format, false /* offloadOnly */, hasVideo, AUDIO_OUTPUT_FLAG_DIRECT, &mOffloadAudio);
+    if (err != OK) {
+        //turn off pass through
+        bEnablePassThrough = false;
+    } else {
+        bEnablePassThrough = true;
+        ALOGE("tryOpenAudioSinkForPassThrough SUCCESS bEnablePassThrough TRUE");
+        //sendMetaDataToHal(mAudioSink, audioMeta);
+
+    }
+}
+
 void NuPlayer::closeAudioSink() {
     mRenderer->closeAudioSink();
 }
@@ -1610,6 +1641,7 @@ void NuPlayer::restartAudio(
     if (forceNonOffload) {
         mRenderer->signalDisableOffloadAudio();
         mOffloadAudio = false;
+        bEnablePassThrough = false;
     }
     if (needsToCreateAudioDecoder) {
         instantiateDecoder(true /* audio */, &mAudioDecoder, !forceNonOffload);
@@ -1624,6 +1656,7 @@ void NuPlayer::determineAudioModeChange(const sp<AMessage> &audioFormat) {
     if (mRenderer == NULL) {
         ALOGW("No renderer can be used to determine audio mode. Use non-offload for safety.");
         mOffloadAudio = false;
+        bEnablePassThrough = false;
         return;
     }
 
@@ -1631,6 +1664,27 @@ void NuPlayer::determineAudioModeChange(const sp<AMessage> &audioFormat) {
     sp<AMessage> videoFormat = mSource->getFormat(false /* audio */);
     audio_stream_type_t streamType = mAudioSink->getAudioStreamType();
     const bool hasVideo = (videoFormat != NULL);
+
+    const bool setPassThrough = canPassThrough(audioMeta)
+                    && (mPlaybackSettings.mSpeed == 1.f && mPlaybackSettings.mPitch == 1.f);
+    //check pass through first, if enabled, then do not check offload mode
+    if(setPassThrough){
+        ALOGE("Enable Pass Through");
+        if (!bEnablePassThrough) {
+            //always disable offload mode
+            mRenderer->signalDisableOffloadAudio();
+        }
+        // open audio sink for pass through
+        tryOpenAudioSinkForPassThrough(audioFormat, hasVideo);
+        return;
+    }else{
+        if (bEnablePassThrough) {
+            //always disable offload mode
+            mRenderer->signalDisableOffloadAudio();
+            bEnablePassThrough = false;
+        }
+    }
+
     const bool canOffload = canOffloadStream(
             audioMeta, hasVideo, mSource->isStreaming(), streamType)
                     && (mPlaybackSettings.mSpeed == 1.f && mPlaybackSettings.mPitch == 1.f);
@@ -1705,7 +1759,15 @@ status_t NuPlayer::instantiateDecoder(
         if (checkAudioModeChange) {
             determineAudioModeChange(format);
         }
-        if (mOffloadAudio) {
+
+        if(bEnablePassThrough){
+            mSource->setOffloadAudio(false /* offload */);
+
+            //use pass through decoder for test now.
+            const bool hasVideo = (mSource->getFormat(false /*audio */) != NULL);
+            format->setInt32("has-video", hasVideo);
+            *decoder = new DecoderPassThroughAC3(notify, mSource, mRenderer);
+        }else if (mOffloadAudio) {
             mSource->setOffloadAudio(true /* offload */);
 
             const bool hasVideo = (mSource->getFormat(false /*audio */) != NULL);
