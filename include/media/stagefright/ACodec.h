@@ -13,7 +13,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-/* Copyright (C) 2016 Freescale Semiconductor, Inc. */
+/* Copyright (C) 2016 Freescale Semiconductor, Inc.
+ * Copyright 2017 NXP
+ */
 #ifndef A_CODEC_H_
 
 #define A_CODEC_H_
@@ -581,7 +583,7 @@ private:
 
     // Send EOS on input stream.
     void onSignalEndOfInputStream();
-    status_t setMediaTime(int64_t time);
+    status_t setMediaTime(int64_t time, float speed);
     DISALLOW_EVIL_CONSTRUCTORS(ACodec);
 };
 

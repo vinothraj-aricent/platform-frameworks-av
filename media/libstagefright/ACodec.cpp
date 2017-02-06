@@ -1,6 +1,7 @@
 /*
  * Copyright (C) 2010 The Android Open Source Project
  * Copyright (C) 2012-2017 Freescale Semiconductor, Inc.
+ * Copyright 2017 NXP
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -3251,7 +3252,7 @@ status_t ACodec::setupRACodec(
             &def,
             sizeof(def));
 }
-status_t ACodec::setMediaTime(int64_t time) {
+status_t ACodec::setMediaTime(int64_t time, float speed) {
 
     if(!mComponentName.startsWith("OMX.Freescale.std.video_decoder")){
         return OK;
@@ -3263,6 +3264,7 @@ status_t ACodec::setMediaTime(int64_t time) {
     OMX_CONFIG_VIDEO_MEDIA_TIME def;
     InitOMXParams(&def);
     def.nTime = time;
+    def.nScale = speed * 0x10000; // Q16 format
     status_t err = mOMX->setConfig(
             mNode, (OMX_INDEXTYPE)OMX_IndexConfigVideoMediaTime,
             &def, sizeof(def));
@@ -8256,9 +8258,13 @@ status_t ACodec::setParameters(const sp<AMessage> &params) {
         }
     }
 
+    float speed;
+    if (!params->findFloat("playback-speed", &speed) || speed <= 0)
+        speed = 1.0f;
+
     int64_t mediaTime;
     if (params->findInt64("media-time", &mediaTime)) {
-        status_t err = setMediaTime(mediaTime);
+        status_t err = setMediaTime(mediaTime, speed);
         if (err != OK) {
             ALOGE("Failed to set parameter 'media-time' (err %d)", err);
             return err;

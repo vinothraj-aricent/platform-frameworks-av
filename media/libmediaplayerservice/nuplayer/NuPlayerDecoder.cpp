@@ -13,7 +13,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-/* Copyright (C) 2016 Freescale Semiconductor, Inc. */
+/* Copyright (C) 2016 Freescale Semiconductor, Inc.
+ * Copyright 2017 NXP
+ */
 //#define LOG_NDEBUG 0
 #define LOG_TAG "NuPlayerDecoder"
 #include <utils/Log.h>
@@ -415,6 +417,7 @@ void NuPlayer::Decoder::onSetParameters(const sp<AMessage> &params) {
     if (params->findInt64("media-time", &ts)){
         sp<AMessage> codecParams = new AMessage();
         codecParams->setInt64("media-time", ts);
+        codecParams->setFloat("playback-speed", mPlaybackSpeed);
         mCodec->setParameters(codecParams);
     }
 
