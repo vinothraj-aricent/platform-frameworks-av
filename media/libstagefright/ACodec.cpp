@@ -1031,10 +1031,13 @@ status_t ACodec::configureOutputBuffersFromNativeWindow(
     // itself and explicitly sets def.nBufferCountActual to 0.
     if (mTunneled) {
         ALOGV("Tunneled Playback: skipping native window buffer allocation.");
+        // Tunneled codecs will configure port settings by itself, don't setParameter
+        // nBufferCountActual=0 again or this action may revert tunneled codecs's port settings.
+#if 0
         def.nBufferCountActual = 0;
         err = mOMX->setParameter(
                 mNode, OMX_IndexParamPortDefinition, &def, sizeof(def));
-
+#endif
         *minUndequeuedBuffers = 0;
         *bufferCount = 0;
         *bufferSize = 0;
@@ -2459,6 +2462,8 @@ status_t ACodec::configureCodec(
             mOutputFormat = outputFormat;
         }
     }
+
+    mInputFormat->setInt32("tunneled-playback", mTunneled);
 
     // create data converters if needed
     if (!video && err == OK) {
@@ -8259,7 +8264,7 @@ status_t ACodec::setParameters(const sp<AMessage> &params) {
     }
 
     float speed;
-    if (!params->findFloat("playback-speed", &speed) || speed <= 0)
+    if (!params->findFloat("playback-speed", &speed) || speed < 0)
         speed = 1.0f;
 
     int64_t mediaTime;
@@ -8314,6 +8319,8 @@ bool ACodec::ExecutingState::onOMXEvent(
             CHECK_EQ(data1, (OMX_U32)kPortIndexOutput);
 
             mCodec->onOutputFormatChanged();
+            if (mCodec->mTunneled && mCodec->mComponentName.endsWith("hw-based"))
+                return true;
 
             if (data2 == 0 || data2 == OMX_IndexParamPortDefinition) {
                 mCodec->mMetadataBuffersToSubmit = 0;
@@ -8336,6 +8343,14 @@ bool ACodec::ExecutingState::onOMXEvent(
 
         case OMX_EventBufferFlag:
         {
+            /* video decoder must post the EOS to player in tunnel playback */
+            if (data2 == OMX_BUFFERFLAG_EOS && mCodec->mTunneled) {
+                sp<AMessage> notify = mCodec->mNotify->dup();
+                notify->setInt32("what", CodecBase::kWhatEOS);
+                notify->setInt32("err", ERROR_END_OF_STREAM);
+                notify->setInt32("tunneled-playback", mCodec->mTunneled);
+                notify->post();
+            }
             return true;
         }
 

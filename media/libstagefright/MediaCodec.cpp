@@ -1,5 +1,6 @@
 /*
  * Copyright 2012, The Android Open Source Project
+ * Copyright 2017 NXP
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -1589,6 +1590,13 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
                 {
                     // We already notify the client of this by using the
                     // corresponding flag in "onOutputBufferReady".
+                    int32_t tunneled = 0;
+                    if (msg->findInt32("tunneled-playback", &tunneled) && tunneled) {
+                        sp<AMessage> notify = mCallback->dup();
+                        notify->setInt32("callbackID", CB_OUTPUT_TUNNEL_EOS);
+                        notify->post();
+                    }
+
                     break;
                 }
 
