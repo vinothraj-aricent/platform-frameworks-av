@@ -1243,6 +1243,12 @@ status_t FslExtractor::CreateParserInterface()
             break;
         }
 
+        err = myQueryInterface(PARSER_API_GET_SAMPLE_CRYPTO_INFO, (void **)&IParser->getSampleCryptoInfo);
+
+        if(!IParser->getSampleCryptoInfo){
+            err = PARSER_SUCCESS;
+        }
+
     }while(0);
 
 
@@ -1514,7 +1520,6 @@ status_t FslExtractor::ParseMediaFormat()
         if(ret)
             continue;
 
-
         err = IParser->seek(parserHandle, i, &sSeekPosTmp, SEEK_FLAG_NO_LATER);
         if(err)
             return UNKNOWN_ERROR;
@@ -1540,7 +1545,7 @@ status_t FslExtractor::ParseVideo(uint32 index, uint32 type,uint32 subtype)
     size_t sourceIndex = 0;
     size_t max_size = 0;
     int64_t thumbnail_ts = -1;
-    bool mkv_encrypted = false;
+
     ALOGD("ParseVideo index=%u,type=%u,subtype=%u",index,type,subtype);
     for(i = 0; i < sizeof(video_mime_table)/sizeof(codec_mime_struct); i++){
         if (type == video_mime_table[i].type){
@@ -1691,27 +1696,6 @@ status_t FslExtractor::ParseVideo(uint32 index, uint32 type,uint32 subtype)
 
     meta->setInt64(kKeyThumbnailTime, thumbnail_ts);
 
-    if(IParser->getTrackExtTag){
-        TrackExtTagList *pList = NULL;
-        TrackExtTagItem * pItem = NULL;
-        err = IParser->getTrackExtTag(parserHandle,index,&pList);
-        if(err){
-            return UNKNOWN_ERROR;
-        }
-
-        if(pList && pList->num > 0){
-            pItem = pList->m_ptr;
-            while(pItem != NULL){
-                if(pItem->index == FSL_PARSER_TRACKEXTTAG_CRPYTOKEY && !strcmp(mMime, MEDIA_MIMETYPE_CONTAINER_MATROSKA)){
-                    meta->setData(kKeyCryptoKey, pItem->type, pItem->data, pItem->size);
-                        mkv_encrypted = true;
-                        ALOGI("mkv_encrypted true %d",pItem->size);
-                }
-                pItem = pItem->nextItemPtr;
-            }
-        }
-    }
-
     if(IParser->getVideoColorInfo){
         int32 primaries = 0;
         int32 transfer = 0;
@@ -1752,6 +1736,9 @@ status_t FslExtractor::ParseVideo(uint32 index, uint32 type,uint32 subtype)
             ALOGI("set kKeyHdrStaticInfo");
     }
 
+
+    ParseTrackExtMetadata(index,meta);
+
     mTracks.push();
     sourceIndex = mTracks.size() - 1;
     TrackInfo *trackInfo = &mTracks.editItemAt(sourceIndex);
@@ -1768,7 +1755,28 @@ status_t FslExtractor::ParseVideo(uint32 index, uint32 type,uint32 subtype)
     trackInfo->type = MEDIA_VIDEO;
     trackInfo->bIsNeedConvert = false;
     trackInfo->bitPerSample = 0;
-    trackInfo->bMkvEncrypted = mkv_encrypted;
+    trackInfo->bMp4Encrypted = false;
+    trackInfo->bMkvEncrypted = false;
+
+    if(meta->hasData(kKeyCryptoKey)){
+        if(!strcmp(mMime, MEDIA_MIMETYPE_CONTAINER_MPEG4)){
+            uint32_t type;
+            const void *data;
+            size_t size;
+            int32 mode;
+            int32 iv_size;
+            if(meta->findData(kKeyCryptoKey,&type,&data,&size) && data && size <=16)
+                memcpy(trackInfo->default_kid,data,size);
+            if(meta->findInt32(kKeyCryptoMode,&mode))
+                trackInfo->default_isEncrypted = mode;
+            if(meta->findInt32(kKeyCryptoDefaultIVSize,&iv_size))
+                trackInfo->default_iv_size = iv_size;
+
+            trackInfo->bMp4Encrypted = true;
+        }else if(!strcmp(mMime, MEDIA_MIMETYPE_CONTAINER_MATROSKA))
+            trackInfo->bMkvEncrypted = true;
+    }
+
     mReader->AddBufferReadLimitation(index,max_size);
 
     ALOGI("add video track index=%u,source index=%zu,mime=%s",index,sourceIndex,mime);
@@ -1794,6 +1802,7 @@ status_t FslExtractor::ParseAudio(uint32 index, uint32 type,uint32 subtype)
     size_t sourceIndex = 0;
     int32_t encoderDelay = 0;
     int32_t encoderPadding = 0;
+
     ALOGD("ParseAudio index=%u,type=%u,subtype=%u",index,type,subtype);
     for(i = 0; i < sizeof(audio_mime_table)/sizeof(codec_mime_struct); i++){
         if (type == audio_mime_table[i].type){
@@ -1972,6 +1981,8 @@ status_t FslExtractor::ParseAudio(uint32 index, uint32 type,uint32 subtype)
     if(mFileMetaData->findInt32(kKeyEncoderPadding,&encoderPadding))
         meta->setInt32(kKeyEncoderPadding, encoderPadding);
 
+    ParseTrackExtMetadata(index,meta);
+
 #if 0//test
     if(type == AUDIO_MP3) {
         meta->setInt32(kKeyEncoderDelay, 576);
@@ -1997,7 +2008,27 @@ status_t FslExtractor::ParseAudio(uint32 index, uint32 type,uint32 subtype)
     trackInfo->type = MEDIA_AUDIO;
     trackInfo->bIsNeedConvert = (type == AUDIO_PCM && bitPerSample!= 16);
     trackInfo->bitPerSample = bitPerSample;
+    trackInfo->bMp4Encrypted = false;
     trackInfo->bMkvEncrypted = false;
+
+    if(meta->hasData(kKeyCryptoKey)){
+        if(!strcmp(mMime, MEDIA_MIMETYPE_CONTAINER_MPEG4)){
+            uint32_t type;
+            const void *data;
+            size_t size;
+            int32 mode;
+            int32 iv_size;
+            if(meta->findData(kKeyCryptoKey,&type,&data,&size) && data && size <=16)
+                memcpy(&trackInfo->default_kid,data,size);
+            if(meta->findInt32(kKeyCryptoMode,&mode))
+                trackInfo->default_isEncrypted = mode;
+            if(meta->findInt32(kKeyCryptoDefaultIVSize,&iv_size))
+                trackInfo->default_iv_size = iv_size;
+
+            trackInfo->bMp4Encrypted = true;
+        }
+    }
+
     mReader->AddBufferReadLimitation(index,max_size);
     ALOGI("add audio track index=%u,sourceIndex=%zu,mime=%s",index,sourceIndex,mime);
     return OK;
@@ -2053,24 +2084,8 @@ status_t FslExtractor::ParseText(uint32 index, uint32 type,uint32 subtype)
     meta->setInt32(kKeyHeight, height);
     meta->setCString(kKeyMediaLanguage, (const char*)&language);
 
-    if(IParser->getTrackExtTag){
-        TrackExtTagList *pList = NULL;
-        TrackExtTagItem *pItem = NULL;
-        err = IParser->getTrackExtTag(parserHandle, index, &pList);
-        if(err)
-            return UNKNOWN_ERROR;
+    ParseTrackExtMetadata(index,meta);
 
-        if(pList && pList->num > 0){
-            pItem = pList->m_ptr;
-            while(pItem != NULL){
-                if(pItem->index == FSL_PARSER_TRACKEXTTAG_TX3G){
-                    meta->setData(kKeyTextFormatData, pItem->type, pItem->data, pItem->size);
-                    ALOGI("kKeyTextFormatData %d",pItem->size);
-                }
-                pItem = pItem->nextItemPtr;
-            }
-        }
-    }
     mTracks.push();
     TrackInfo *trackInfo = &mTracks.editItemAt(mTracks.size() - 1);
     trackInfo->mTrackNum = index;
@@ -2087,8 +2102,47 @@ status_t FslExtractor::ParseText(uint32 index, uint32 type,uint32 subtype)
     trackInfo->bIsNeedConvert = false;
     trackInfo->bitPerSample = 0;
     trackInfo->bMkvEncrypted = false;
+    trackInfo->bMp4Encrypted = false;
     mReader->AddBufferReadLimitation(index,MAX_TEXT_BUFFER_SIZE);
     ALOGD("add text track");
+    return OK;
+}
+status_t FslExtractor::ParseTrackExtMetadata(uint32 index, const sp<MetaData>& meta)
+{
+    int32 err = (int32)PARSER_SUCCESS;
+    if(meta == NULL)
+        return UNKNOWN_ERROR;
+
+    if(IParser->getTrackExtTag){
+        TrackExtTagList *pList = NULL;
+        TrackExtTagItem *pItem = NULL;
+        err = IParser->getTrackExtTag(parserHandle, index, &pList);
+        if(err)
+            return UNKNOWN_ERROR;
+
+        if(pList && pList->num > 0){
+            pItem = pList->m_ptr;
+            while(pItem != NULL){
+                if(pItem->index == FSL_PARSER_TRACKEXTTAG_TX3G){
+                    meta->setData(kKeyTextFormatData, pItem->type, pItem->data, pItem->size);
+                    ALOGI("kKeyTextFormatData %d",pItem->size);
+                }else if(pItem->index == FSL_PARSER_TRACKEXTTAG_CRPYTOKEY){
+                    uint32 type = 0;
+                    if(!strcmp(mMime, MEDIA_MIMETYPE_CONTAINER_MPEG4))
+                        type = 'tenc';
+                    meta->setData(kKeyCryptoKey, pItem->type, pItem->data, pItem->size);
+                }else if(pItem->index == FSL_PARSER_TRACKEXTTAG_CRPYTOMODE ){
+                    int32 cryptoMode = *(int32*)pItem->data;
+                    meta->setInt32(kKeyCryptoMode, cryptoMode);
+                }else if(pItem->index == FSL_PARSER_TRACKEXTTAG_CRPYTODEFAULTIVSIZE ){
+                    int32 defaultIVSize = *(int32*)pItem->data;
+                    meta->setInt32(kKeyCryptoDefaultIVSize, defaultIVSize);
+                }
+                pItem = pItem->nextItemPtr;
+            }
+        }
+    }
+
     return OK;
 }
 int FslExtractor::bytesForSize(size_t size) {
@@ -2396,6 +2450,7 @@ status_t FslExtractor::GetNextSample(uint32_t index,bool is_sync)
                 if(buffer == NULL){
                     buffer = (ABuffer *)buffer_context;
                     pInfo->outTs = ts;
+                    pInfo->outDuration = duration;
                     pInfo->syncFrame = (sampleFlag & FLAG_SYNC_SAMPLE);
                     buffer->setRange(0,datasize);
                     pInfo->buffer = buffer;
@@ -2430,10 +2485,12 @@ status_t FslExtractor::GetNextSample(uint32_t index,bool is_sync)
             else{
                 buffer = (ABuffer *)buffer_context;
                 pInfo->outTs = ts;
+                pInfo->outDuration = duration;
                 pInfo->syncFrame = (sampleFlag & FLAG_SYNC_SAMPLE);
                 pInfo->buffer = buffer;
                 buffer->setRange(0,datasize);
             }
+
         }else {
             // mpg2 parser often send an empty buffer as the last partial frame.
             if(pInfo->bPartial && !(sampleFlag & FLAG_SAMPLE_NOT_FINISHED))
@@ -2461,6 +2518,12 @@ status_t FslExtractor::GetNextSample(uint32_t index,bool is_sync)
             }
         }
         if(add){
+            bool readDrmInfo = false;
+            //check the last complete sample we read
+            if((sampleFlag & FLAG_SAMPLE_COMPRESSED_SAMPLE) && !(sampleFlag & FLAG_SAMPLE_NOT_FINISHED)){
+                readDrmInfo = true;
+            }
+
             if(pInfo->bIsNeedConvert) {
                 sp<ABuffer> buffer = pInfo->buffer;
                 sp<ABuffer> tmp = new ABuffer(2 * buffer->size());
@@ -2476,9 +2539,12 @@ status_t FslExtractor::GetNextSample(uint32_t index,bool is_sync)
             if (pInfo->buffer->meta()->findBuffer("sei", &sei))
                 mbuf->meta_data()->setData(kKeySEI, 0, sei->data(), sei->size());
 
+            mbuf->meta_data()->setInt64(kKeyDuration, pInfo->outDuration);
             ALOGV("addMediaBuffer ts=%" PRId64 ",size=%zu",pInfo->outTs,pInfo->buffer->size());
             if(pInfo->bMkvEncrypted){
                 SetMkvCrpytBufferInfo(pInfo,mbuf);
+            }else if(pInfo->bMp4Encrypted && readDrmInfo){
+                SetMp4CrpytBufferInfo(pInfo,mbuf);
             }
             source->addMediaBuffer(mbuf);
             if(pInfo->type == MEDIA_VIDEO)
@@ -2580,7 +2646,8 @@ status_t FslExtractor::convertPCMData(sp<ABuffer> inBuffer, sp<ABuffer> outBuffe
 
     return OK;
 }
-status_t FslExtractor::SetMkvCrpytBufferInfo(TrackInfo *pInfo, MediaBuffer *buf) {
+status_t FslExtractor::SetMkvCrpytBufferInfo(TrackInfo *pInfo, MediaBuffer *buf)
+{
 
     uint8 *buffer_ptr = (uint8 *)buf->data();
     int32_t buffer_len = buf->size();
@@ -2628,6 +2695,38 @@ status_t FslExtractor::SetMkvCrpytBufferInfo(TrackInfo *pInfo, MediaBuffer *buf)
 
     return OK;
 }
+status_t FslExtractor::SetMp4CrpytBufferInfo(TrackInfo *pInfo, MediaBuffer *buf)
+{
+    int32 err = (int32)PARSER_SUCCESS;
+
+    if(pInfo == NULL || buf == NULL)
+        return ERROR_MALFORMED;
+
+    sp<MetaData> meta = buf->meta_data();
+    uint8 *iv;
+    uint32 ivSize = 0;
+    uint8 *clear;
+    uint32 clearSize = 0;
+    uint8 * encrypted;
+    uint32 encryptedSize = 0;
+    err = IParser->getSampleCryptoInfo(parserHandle,pInfo->mTrackNum,&iv,&ivSize,
+            &clear, &clearSize, &encrypted, &encryptedSize);
+    if(err == PARSER_SUCCESS){
+        meta->setData(kKeyCryptoIV, 0, iv, 16); //use 16 instead of iv size
+        meta->setInt32(kKeyCryptoMode,pInfo->default_isEncrypted);
+        meta->setInt32(kKeyCryptoDefaultIVSize,pInfo->default_iv_size);
+
+        meta->setData(kKeyCryptoKey, 0, pInfo->default_kid, 16);
+        meta->setData(kKeyPlainSizes,0,clear,clearSize);
+        meta->setData(kKeyEncryptedSizes,0,encrypted,encryptedSize);
+        ALOGV("SetMp4CrpytBufferInfo clear size=%d,encryptedSize=%d,ivsize=%d",
+            clearSize,encryptedSize,pInfo->default_iv_size);
+    }else{
+        ALOGV("getNextDrmInfoSample of track %d, failed!",pInfo->mTrackNum);
+    }
+
+    return OK;
+}
 #define DELTA_TIME (24 * 3600 * (66*365 + 17))//seconds passed from Jan,1,1904 to Jan,1,1970
 bool FslExtractor::ConvertMp4TimeToString(uint64 inTime, String8 *s) {
 
@@ -2655,7 +2754,7 @@ bool FslExtractor::ConvertMp4TimeToString(uint64 inTime, String8 *s) {
 
     return false;
 }
-status_t FslExtractor::SetMkvHDRColorInfoMetadata(VideoHDRColorInfo *pInfo,sp<MetaData> meta)
+status_t FslExtractor::SetMkvHDRColorInfoMetadata(VideoHDRColorInfo *pInfo,const sp<MetaData> &meta)
 {
     HDRStaticInfo targetInfo;
     bool update = false;

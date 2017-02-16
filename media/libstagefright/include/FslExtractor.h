@@ -96,7 +96,7 @@ typedef struct
 
     FslParserGetFileNextSample              getFileNextSample;
     FslParserGetFileNextSyncSample          getFileNextSyncSample;
-
+    FslParserGetSampleCryptoInfo       getSampleCryptoInfo;
     FslParserSeek                       seek;
 
 }FslParserInterface;
@@ -151,12 +151,18 @@ private:
         sp<ABuffer> buffer;
 
         int64_t outTs = 0;
+        int64_t outDuration = 0;
         int32_t syncFrame = 0;
         uint32_t max_input_size;
         uint32_t type;
         bool bIsNeedConvert;
         int32_t bitPerSample;
         bool bMkvEncrypted;
+        bool bMp4Encrypted;
+        //mp4 track crypto info
+        int32_t default_isEncrypted;
+        int32_t default_iv_size;
+        uint8_t default_kid[16];
     };
     Vector<TrackInfo> mTracks;
 
@@ -178,6 +184,7 @@ private:
     status_t ParseVideo(uint32 index, uint32 type,uint32 subtype);
     status_t ParseAudio(uint32 index, uint32 type,uint32 subtype);
     status_t ParseText(uint32 index, uint32 type,uint32 subtype);
+    status_t ParseTrackExtMetadata(uint32 index, const sp<MetaData>& meta);
     int bytesForSize(size_t size);
     void storeSize(uint8_t *data, size_t &idx, size_t size);
     void addESDSFromCodecPrivate(
@@ -190,8 +197,9 @@ private:
     bool isTrackModeParser();
     status_t convertPCMData(sp<ABuffer> inBuffer, sp<ABuffer> outBuffer, int32_t bitPerSample);
     status_t SetMkvCrpytBufferInfo(TrackInfo *pInfo, MediaBuffer *mbuf);
+    status_t SetMp4CrpytBufferInfo(TrackInfo *pInfo, MediaBuffer *mbuf);
     bool ConvertMp4TimeToString(uint64 inTime, String8 *s);
-    status_t SetMkvHDRColorInfoMetadata(VideoHDRColorInfo *pInfo, sp<MetaData> meta);
+    status_t SetMkvHDRColorInfoMetadata(VideoHDRColorInfo *pInfo, const sp<MetaData> &meta);
     FslExtractor(const FslExtractor &);
     FslExtractor &operator=(const FslExtractor &);
 };
