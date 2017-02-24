@@ -28,6 +28,7 @@
 #include "NuPlayerDecoderBase.h"
 #include "NuPlayerDecoderPassThrough.h"
 #include "NuPlayerDecoderPassThroughAC3.h"
+#include "NuPlayerDecoderPassThroughDDP.h"
 #include "NuPlayerDriver.h"
 #include "NuPlayerRenderer.h"
 #include "NuPlayerSource.h"
@@ -1435,7 +1436,6 @@ void NuPlayer::onStart(int64_t startPositionUs) {
 
     bEnablePassThrough = canPassThrough(audioMeta)
                 && (mPlaybackSettings.mSpeed == 1.f && mPlaybackSettings.mPitch == 1.f);
-    ALOGE("NuPlayer::onStart bEnablePassThrough=%d",bEnablePassThrough);
 
     sp<AMessage> notify = new AMessage(kWhatRendererNotify, this);
     ++mRendererGeneration;
@@ -1586,11 +1586,18 @@ void NuPlayer::tryOpenAudioSinkForPassThrough(
         const sp<AMessage> &format, bool hasVideo) {
     // Note: This is called early in NuPlayer to determine whether offloading
     // is possible; otherwise the decoders call the renderer openAudioSink directly.
+    AString mime;
+    CHECK(format->findString("mime", &mime));
 
+    if(0 == strcasecmp(mime.c_str(), MEDIA_MIMETYPE_AUDIO_AC3)){
     format->setInt32("channel-count", 2);
     format->setInt32("channel-mask", CHANNEL_MASK_USE_CHANNEL_ORDER);
     format->setInt32("sample-rate", 48000);
-
+    }else if( 0 == strcmp(mime.c_str(), MEDIA_MIMETYPE_AUDIO_EAC3)){
+        format->setInt32("channel-count", 2);
+        format->setInt32("channel-mask", CHANNEL_MASK_USE_CHANNEL_ORDER);
+        format->setInt32("sample-rate", 48000*4);
+    }
 
     status_t err = mRenderer->openAudioSink(
             format, false /* offloadOnly */, hasVideo, AUDIO_OUTPUT_FLAG_DIRECT, &mOffloadAudio);
@@ -1599,7 +1606,7 @@ void NuPlayer::tryOpenAudioSinkForPassThrough(
         bEnablePassThrough = false;
     } else {
         bEnablePassThrough = true;
-        ALOGE("tryOpenAudioSinkForPassThrough SUCCESS bEnablePassThrough TRUE");
+        ALOGI("tryOpenAudioSinkForPassThrough SUCCESS bEnablePassThrough TRUE");
         //sendMetaDataToHal(mAudioSink, audioMeta);
 
     }
@@ -1669,7 +1676,7 @@ void NuPlayer::determineAudioModeChange(const sp<AMessage> &audioFormat) {
                     && (mPlaybackSettings.mSpeed == 1.f && mPlaybackSettings.mPitch == 1.f);
     //check pass through first, if enabled, then do not check offload mode
     if(setPassThrough){
-        ALOGE("Enable Pass Through");
+        ALOGI("Enable PassThrough");
         if (!bEnablePassThrough) {
             //always disable offload mode
             mRenderer->signalDisableOffloadAudio();
@@ -1761,12 +1768,17 @@ status_t NuPlayer::instantiateDecoder(
         }
 
         if(bEnablePassThrough){
+            AString mime;
+            CHECK(format->findString("mime", &mime));
             mSource->setOffloadAudio(false /* offload */);
 
             //use pass through decoder for test now.
             const bool hasVideo = (mSource->getFormat(false /*audio */) != NULL);
             format->setInt32("has-video", hasVideo);
+            if(0 == strcasecmp(mime.c_str(), MEDIA_MIMETYPE_AUDIO_AC3))
             *decoder = new DecoderPassThroughAC3(notify, mSource, mRenderer);
+            else if( 0 == strcmp(mime.c_str(), MEDIA_MIMETYPE_AUDIO_EAC3))
+                *decoder = new DecoderPassThroughDDP(notify, mSource, mRenderer);
         }else if (mOffloadAudio) {
             mSource->setOffloadAudio(true /* offload */);
 
