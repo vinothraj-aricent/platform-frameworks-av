@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2012 The Android Open Source Project
+ * Copyright 2017 NXP
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -396,7 +397,7 @@ size_t JpegProcessor::findJpegSize(uint8_t* jpegBuffer, size_t maxSize) {
     }
 
     // Read JFIF segment markers, skip over segment data
-    size = 0;
+    size = MARKER_LENGTH; //jump SOI;
     while (size <= maxSize - MARKER_LENGTH) {
         segment_t *segment = (segment_t*)(jpegBuffer + size);
         uint8_t type = checkJpegMarker(segment->marker);
