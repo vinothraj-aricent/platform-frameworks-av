@@ -14,10 +14,6 @@
  * limitations under the License.
  */
 
-/*
- * Copyright (C) 2013-2014 Freescale Semiconductor, Inc.
-*/
-
 #define LOG_TAG "Camera2-JpegProcessor"
 #define ATRACE_TAG ATRACE_TAG_CAMERA
 //#define LOG_NDEBUG 0
@@ -187,8 +183,6 @@ status_t JpegProcessor::updateStream(const Parameters &params) {
                     __FUNCTION__, mId, strerror(-res), res);
               return res;
         }
-
-        mMaxJpegSize = maxJpegSize;
     }
     return OK;
 }
@@ -274,7 +268,6 @@ status_t JpegProcessor::processNewCapture(bool captureSuccess) {
         ALOGV("%s: Camera %d: Still capture available", __FUNCTION__,
                 mId);
 
-#if 0
         if (imgBuffer.format != HAL_PIXEL_FORMAT_BLOB) {
             ALOGE("%s: Camera %d: Unexpected format for still image: "
                     "%x, expected %x", __FUNCTION__, mId,
@@ -283,20 +276,11 @@ status_t JpegProcessor::processNewCapture(bool captureSuccess) {
             mCaptureConsumer->unlockBuffer(imgBuffer);
             return OK;
         }
-#endif
-        // Find size of JPEG image
-        int size = 0;
-        if (imgBuffer.format != HAL_PIXEL_FORMAT_BLOB) {
-            size = imgBuffer.stride * imgBuffer.height * 3/2;
-        }
-        else {
-            size = mMaxJpegSize;
-        }
 
         // Find size of JPEG image
-        size_t jpegSize = findJpegSize(imgBuffer.data, size/*imgBuffer.width*/);
+        size_t jpegSize = findJpegSize(imgBuffer.data, imgBuffer.width);
         if (jpegSize == 0) { // failed to find size, default to whole buffer
-        jpegSize = size;//imgBuffer.width;
+            jpegSize = imgBuffer.width;
         }
         size_t heapSize = mCaptureHeap->getSize();
         if (jpegSize > heapSize) {
@@ -412,7 +396,7 @@ size_t JpegProcessor::findJpegSize(uint8_t* jpegBuffer, size_t maxSize) {
     }
 
     // Read JFIF segment markers, skip over segment data
-    size = MARKER_LENGTH; //jump SOI
+    size = 0;
     while (size <= maxSize - MARKER_LENGTH) {
         segment_t *segment = (segment_t*)(jpegBuffer + size);
         uint8_t type = checkJpegMarker(segment->marker);
