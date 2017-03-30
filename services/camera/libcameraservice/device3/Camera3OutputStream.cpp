@@ -401,8 +401,7 @@ status_t Camera3OutputStream::configureQueueLocked() {
         return res;
     }
 
-    // match camera hal to use width&height to calculate size.
-    if (true/*mMaxSize == 0*/) {
+    if (mMaxSize == 0) {
         // For buffers of known size
         res = native_window_set_buffers_dimensions(mConsumer.get(),
                 camera3_stream::width, camera3_stream::height);
