@@ -148,7 +148,7 @@ private:
         bool bCodecInfoSent;
 
         bool bPartial;
-        sp<ABuffer> buffer;
+        MediaBuffer * buffer;
 
         int64_t outTs = 0;
         int64_t outDuration = 0;
@@ -195,7 +195,7 @@ private:
             const void *_codecPrivate, size_t codecPrivateSize);
 
     bool isTrackModeParser();
-    status_t convertPCMData(sp<ABuffer> inBuffer, sp<ABuffer> outBuffer, int32_t bitPerSample);
+    status_t convertPCMData(MediaBuffer* inBuffer, MediaBuffer* outBuffer, int32_t bitPerSample);
     status_t SetMkvCrpytBufferInfo(TrackInfo *pInfo, MediaBuffer *mbuf);
     status_t SetMp4CrpytBufferInfo(TrackInfo *pInfo, MediaBuffer *mbuf);
     bool ConvertMp4TimeToString(uint64 inTime, String8 *s);

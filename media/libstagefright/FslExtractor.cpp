@@ -645,7 +645,7 @@ static uint8* appRequestBuffer(   uint32 streamNum,
 {
     FslDataSourceReader *h;
     uint8 * dataBuf = NULL;
-    ABuffer * buffer = NULL;
+    MediaBuffer * buffer = NULL;
     uint32_t limitSize = 0;
 
     if (!size || !bufContext || !parserContext)
@@ -663,10 +663,10 @@ static uint8* appRequestBuffer(   uint32 streamNum,
     if((*size) > limitSize && limitSize > 0)
         *size = limitSize;
 
-    buffer = new ABuffer((size_t)(*size));
+    buffer = new MediaBuffer((size_t)(*size));
 
     *bufContext = (void*)buffer;
-    dataBuf = buffer->data();
+    dataBuf = (uint8*)buffer->data();
 
     return dataBuf;
 }
@@ -675,15 +675,15 @@ static uint8* appRequestBuffer(   uint32 streamNum,
 static void appReleaseBuffer(uint32 streamNum, uint8 * pBuffer, void * bufContext, void * parserContext)
 {
     FslDataSourceReader *h;
-    sp<ABuffer> buffer = NULL;
+    MediaBuffer * buffer = NULL;
 
     ALOGV("appReleaseBuffer streamNum=%u",streamNum);
 
     if (!pBuffer || !bufContext || !parserContext)
         return;
     h = (FslDataSourceReader *)parserContext;
-    buffer = (ABuffer *)(bufContext);
-    buffer.clear();
+    buffer = (MediaBuffer *)(bufContext);
+    buffer->release();
 
     return;
 }
@@ -2322,7 +2322,7 @@ status_t FslExtractor::HandleSeekOperation(uint32_t index,int64_t * ts,uint32_t 
         //clear temp buffer
 
         if(pInfo->buffer != NULL){
-            pInfo->buffer.clear();
+            pInfo->buffer->release();
             pInfo->buffer = NULL;
         }
         ALOGD("HandleSeekOperation do seek index=%d",index);
@@ -2440,7 +2440,7 @@ status_t FslExtractor::GetNextSample(uint32_t index,bool is_sync)
         }
 
         if(tmp && buffer_context) {
-            sp<ABuffer> buffer = pInfo->buffer;
+            MediaBuffer * buffer = pInfo->buffer;
 
             if(sampleFlag & FLAG_SAMPLE_NOT_FINISHED)
                 pInfo->bPartial = true;
@@ -2448,16 +2448,16 @@ status_t FslExtractor::GetNextSample(uint32_t index,bool is_sync)
             if(pInfo->bPartial){
 
                 if(buffer == NULL){
-                    buffer = (ABuffer *)buffer_context;
+                    buffer = (MediaBuffer *)buffer_context;
                     pInfo->outTs = ts;
                     pInfo->outDuration = duration;
                     pInfo->syncFrame = (sampleFlag & FLAG_SYNC_SAMPLE);
-                    buffer->setRange(0,datasize);
+                    buffer->set_range(0,datasize);
                     pInfo->buffer = buffer;
                     ALOGV("bPartial first buffer");
                 }else {
-                    sp<ABuffer> lastBuf = buffer;
-                    sp<ABuffer> currBuf = (ABuffer *)buffer_context;
+                    MediaBuffer * lastBuf = buffer;
+                    MediaBuffer * currBuf = (MediaBuffer *)buffer_context;
                     if (pInfo->type == MEDIA_VIDEO && (sampleFlag & FLAG_SAMPLE_H264_SEI_POS_DATA)) {
                         // add sei position data to last video frame buffer as the meta data
                         sp<ABuffer> sei = new ABuffer(sizeof(NALPosition));
@@ -2465,30 +2465,36 @@ status_t FslExtractor::GetNextSample(uint32_t index,bool is_sync)
                         SeiPosition *seiPos = (SeiPosition *)currBuf->data();
                         nalPos->nalOffset = seiPos->offset;
                         nalPos->nalSize = seiPos->size;
-                        buffer->meta()->setBuffer("sei", sei);
-                        currBuf.clear();
+                        buffer->meta_data()->setData(kKeySEI, 0, sei->data(), sei->size());
+                        currBuf->release();
                     } else {
+                        uint32_t meta_type = 0;
+                        const void* meta_value;
+                        size_t meta_size = 0;
                         size_t tempLen = lastBuf->size();
-                        buffer = new ABuffer(tempLen + (size_t)datasize);
+                        buffer = new MediaBuffer(tempLen + (size_t)datasize);
                         memcpy(buffer->data(),lastBuf->data(),tempLen);
-                        memcpy(buffer->data()+tempLen,currBuf->data(),currBuf->size());
-                        lastBuf.clear();
-                        currBuf.clear();
+                        memcpy((uint8*)buffer->data()+tempLen,currBuf->data(),currBuf->size());
+                        if(lastBuf->meta_data()->findData(kKeySEI,&meta_type,&meta_value,&meta_size)){
+                            buffer->meta_data()->setData(kKeySEI, 0, meta_value, meta_size);
+                        }
+                        lastBuf->release();
+                        currBuf->release();
                         pInfo->buffer = buffer;
                     }
-                    ALOGV("bPartial second buffer,");
+                    ALOGV("bPartial second buffer");
                 }
 
                 if(!(sampleFlag & FLAG_SAMPLE_NOT_FINISHED))
                     pInfo->bPartial = false;
             }
             else{
-                buffer = (ABuffer *)buffer_context;
+                buffer = (MediaBuffer *)buffer_context;
                 pInfo->outTs = ts;
                 pInfo->outDuration = duration;
                 pInfo->syncFrame = (sampleFlag & FLAG_SYNC_SAMPLE);
                 pInfo->buffer = buffer;
-                buffer->setRange(0,datasize);
+                buffer->set_range(0,datasize);
             }
 
         }else {
@@ -2525,20 +2531,17 @@ status_t FslExtractor::GetNextSample(uint32_t index,bool is_sync)
             }
 
             if(pInfo->bIsNeedConvert) {
-                sp<ABuffer> buffer = pInfo->buffer;
-                sp<ABuffer> tmp = new ABuffer(2 * buffer->size());
+                MediaBuffer * buffer = pInfo->buffer;
+                MediaBuffer * tmp = new MediaBuffer(2 * buffer->size());
                 convertPCMData(buffer, tmp, pInfo->bitPerSample);
                 pInfo->buffer = tmp;
-                buffer.clear();
+                buffer->release();
             }
 
-            MediaBuffer *mbuf = new MediaBuffer(pInfo->buffer);
-            sp<ABuffer> sei;
+            MediaBuffer *mbuf = pInfo->buffer;
+
             mbuf->meta_data()->setInt64(kKeyTime, pInfo->outTs);
             mbuf->meta_data()->setInt32(kKeyIsSyncFrame, pInfo->syncFrame);
-            if (pInfo->buffer->meta()->findBuffer("sei", &sei))
-                mbuf->meta_data()->setData(kKeySEI, 0, sei->data(), sei->size());
-
             mbuf->meta_data()->setInt64(kKeyDuration, pInfo->outDuration);
             ALOGV("addMediaBuffer ts=%" PRId64 ",size=%zu",pInfo->outTs,pInfo->buffer->size());
             if(pInfo->bMkvEncrypted){
@@ -2552,10 +2555,12 @@ status_t FslExtractor::GetNextSample(uint32_t index,bool is_sync)
             else if(pInfo->type == MEDIA_AUDIO)
                 currentAudioTs = pInfo->outTs;
 
+            //do not release the buffer, pass it to FslMediaSource
+            pInfo->buffer = NULL;
+        }else{
+            pInfo->buffer->release();
+            pInfo->buffer = NULL;
         }
-
-        pInfo->buffer.clear();
-        pInfo->buffer = NULL;
     }
 
     //check for get subtitle track in file mode, avoid interleave
@@ -2614,7 +2619,7 @@ bool FslExtractor::isTrackModeParser()
     else
         return false;
 }
-status_t FslExtractor::convertPCMData(sp<ABuffer> inBuffer, sp<ABuffer> outBuffer, int32_t bitPerSample)
+status_t FslExtractor::convertPCMData(MediaBuffer * inBuffer, MediaBuffer* outBuffer, int32_t bitPerSample)
 {
     if(bitPerSample == 8) {
         // Convert 8-bit unsigned samples to 16-bit signed.
@@ -2627,7 +2632,7 @@ status_t FslExtractor::convertPCMData(sp<ABuffer> inBuffer, sp<ABuffer> outBuffe
             *dst++ = ((int16_t)(*src) - 128) * 256;
             ++src;
         }
-        outBuffer->setRange(0, 2 * inBuffer->size());
+        outBuffer->set_range(0, 2 * inBuffer->size());
 
     }else if (bitPerSample == 24) {
         // Convert 24-bit signed samples to 16-bit signed.
@@ -2641,7 +2646,7 @@ status_t FslExtractor::convertPCMData(sp<ABuffer> inBuffer, sp<ABuffer> outBuffe
             *dst++ = (int16_t)x;
             src += 3;
         }
-        outBuffer->setRange(0, 2 * numSamples);
+        outBuffer->set_range(0, 2 * numSamples);
     }
 
     return OK;
