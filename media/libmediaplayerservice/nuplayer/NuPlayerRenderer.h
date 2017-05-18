@@ -166,7 +166,6 @@ private:
     int64_t mVideoLateByUs;
     bool mHasAudio;
     bool mHasVideo;
-    bool mAudioEOS;
 
     bool mNotifyCompleteAudio;
     bool mNotifyCompleteVideo;
