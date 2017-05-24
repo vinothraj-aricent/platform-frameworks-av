@@ -23,7 +23,9 @@ protected:
     status_t getFrameLen(sp<ABuffer> *accessUnit,int32_t offset,int32_t *len);
     status_t getCacheSize(size_t *cacheSize,size_t * bufferSize);
 private:
-    ;
+    size_t mFrameSize;
+    size_t mNumBlocks;
+    sp<ABuffer> tempBuf;
 };
 }
 #endif
