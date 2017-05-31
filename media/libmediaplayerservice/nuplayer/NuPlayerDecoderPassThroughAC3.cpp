@@ -131,7 +131,7 @@ status_t NuPlayer::DecoderPassThroughAC3::parseAccessUnit(sp<ABuffer> *accessUni
     }
 
     ALOGV("frameCnt=%d",frameCnt);
-    uint8_t first = *src->data();
+    //uint8_t first = *src->data();
 
     #define OUTPUT_BUFFER_SIZE (6144)
     tar = new ABuffer(OUTPUT_BUFFER_SIZE*frameCnt);
@@ -164,18 +164,22 @@ status_t NuPlayer::DecoderPassThroughAC3::parseAccessUnit(sp<ABuffer> *accessUni
         memcpy(tar_ptr+2*sizeof(uint16_t),&header3,sizeof(uint16_t));
         memcpy(tar_ptr+3*sizeof(uint16_t),&header4,sizeof(uint16_t));
 
+        tar_ptr += 8;
+
         //need switch byte order for each uint16
-        if(first == 0x0b){
-                int32_t i;
-                uint16_t * ptr = (uint16_t*)src_ptr;
-                for(i = 0; i < frameLen/2; i++) {
-            uint16_t word = ptr[i];
-            uint16_t byte1 = (word << 8) & 0xff00;
-            uint16_t byte2 = (word >> 8) & 0x00ff;
-            ptr[i] = byte1 | byte2;
+        if(src_ptr[0] == 0x0b && src_ptr[1] == 0x77){
+            int32_t i;
+            uint16_t * ptr = (uint16_t*)src_ptr;
+            uint16_t * ptr2 = (uint16_t*)tar_ptr;
+            for(i = 0; i < frameLen/2; i++) {
+                uint16_t word = ptr[i];
+                uint16_t byte1 = (word << 8) & 0xff00;
+                uint16_t byte2 = (word >> 8) & 0x00ff;
+                ptr2[i] = byte1 | byte2;
             }
+        }else{
+            memcpy(tar_ptr,src_ptr,frameLen);
         }
-        memcpy(tar_ptr+4*sizeof(uint16_t),src_ptr,frameLen);
 
         ALOGV("parseAccessUnit,offset=%d,frameLen=%d,totalSrcSize=%d",src_offset,frameLen,fromSize);
         src_offset += frameLen;
