@@ -76,6 +76,7 @@ LOCAL_C_INCLUDES:= \
         $(TOP)/external/libvpx/libwebm \
         $(TOP)/system/netd/include \
         $(TOP)/device/fsl-codec/ghdr/common \
+        $(TOP)/hardware/imx/include \
         $(call include-path-for, audio-utils)
 
 LOCAL_SHARED_LIBRARIES := \

@@ -23,6 +23,7 @@
 #include <OMX_IVCommon.h>
 
 #include <gui/Surface.h>
+#include <graphics_ext.h>
 
 namespace android {
 

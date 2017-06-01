@@ -27,6 +27,7 @@
 #include <utils/Trace.h>
 
 #include <gui/Surface.h>
+#include <graphics_ext.h>
 
 #include <media/stagefright/ACodec.h>
 
