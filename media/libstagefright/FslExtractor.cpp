@@ -2503,7 +2503,7 @@ status_t FslExtractor::GetNextSample(uint32_t index,bool is_sync)
                 pInfo->bPartial = false;
         }
 
-    }while((sampleFlag & FLAG_SAMPLE_NOT_FINISHED) && (pInfo->buffer->size() < pInfo->max_input_size));
+    }while((sampleFlag & FLAG_SAMPLE_NOT_FINISHED) && (pInfo->buffer != NULL && (pInfo->buffer->size() < pInfo->max_input_size)));
 
     if(pInfo && pInfo->buffer != NULL ){
         sp<FslMediaSource> source = pInfo->mSource.promote();
