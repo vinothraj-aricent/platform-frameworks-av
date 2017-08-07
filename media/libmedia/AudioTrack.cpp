@@ -2294,7 +2294,7 @@ status_t AudioTrack::getTimestamp_l(ExtendedTimestamp *timestamp)
         }
     }
     // check for offloaded/direct here in case restoring somehow changed those flags.
-    if (isOffloadedOrDirect_l()) {
+    if (isOffloaded_l()) {
         return INVALID_OPERATION; // not supported
     }
     status_t status = mProxy->getTimestamp(timestamp);
